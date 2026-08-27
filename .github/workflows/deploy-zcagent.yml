@@ -1,0 +1,117 @@
+name: Deploy zcagent
+
+on:
+  workflow_call:
+    inputs:
+      doppler-project: { required: true, type: string }
+      doppler-config: { required: false, default: prd, type: string }
+      worker-name: { required: true, type: string }
+      route-hostname: { required: true, type: string }
+      deployment-url: { required: true, type: string }
+      wrangler-config: { required: false, default: wrangler.jsonc, type: string }
+    secrets:
+      doppler_token: { required: true }
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    environment:
+      name: Production
+      url: ${{ inputs.deployment-url }}
+    env:
+      TARGET_DOPPLER_PROJECT: ${{ inputs.doppler-project }}
+      TARGET_DOPPLER_CONFIG: ${{ inputs.doppler-config }}
+      TARGET_WORKER: ${{ inputs.worker-name }}
+      TARGET_ROUTE: ${{ inputs.route-hostname }}
+      TARGET_WRANGLER_CONFIG: ${{ inputs.wrangler-config }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install Doppler CLI
+        uses: dopplerhq/cli-action@014df23b1329b615816a38eb5f473bb9000700b1
+
+      - name: Validate Doppler production config
+        env:
+          DOPPLER_TOKEN: ${{ secrets.doppler_token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          resolved_env="$(doppler secrets get DOPPLER_ENVIRONMENT --plain \
+            --project "$TARGET_DOPPLER_PROJECT" --config "$TARGET_DOPPLER_CONFIG" \
+            | tr '[:upper:]' '[:lower:]' | xargs)"
+          case "$resolved_env" in prd|prod) ;; *) exit 1 ;; esac
+          doppler secrets get CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN --plain \
+            --project "$TARGET_DOPPLER_PROJECT" --config "$TARGET_DOPPLER_CONFIG" >/dev/null
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with: { version: 11.22.0 }
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: 22, cache: pnpm }
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify
+      - run: pnpm build
+
+      - name: Validate generated deployment contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          clean_config="$RUNNER_TEMP/zcagent-wrangler.json"
+          node - "$TARGET_WRANGLER_CONFIG" "$clean_config" <<'NODE'
+          const { readFileSync, writeFileSync } = require('node:fs')
+          const [source, output] = process.argv.slice(2)
+          const text = readFileSync(source, 'utf8')
+            .split('\n').filter(line => !line.trimStart().startsWith('//')).join('\n')
+          writeFileSync(output, JSON.stringify(JSON.parse(text)))
+          NODE
+          jq -e --arg worker "$TARGET_WORKER" --arg route "$TARGET_ROUTE" '
+            .name == $worker and
+            any(.routes[]?; .pattern == $route and .custom_domain == true) and
+            .ai.binding == "AI" and
+            any(.kv_namespaces[]?; .binding == "KV") and
+            any(.r2_buckets[]?; .binding == "R2") and
+            any(.vectorize[]?; .binding == "VECTORIZE") and
+            any(.durable_objects.bindings[]?; .name == "Assistant") and
+            any(.workflows[]?; .binding == "CHECKIN_WORKFLOW") and
+            any(.workflows[]?; .binding == "HEARTBEAT_WORKFLOW") and
+            any(.workflows[]?; .binding == "RETHINK_WORKFLOW")
+          ' "$clean_config" >/dev/null
+
+      - name: Deploy code and runtime secrets atomically
+        env:
+          DOPPLER_TOKEN: ${{ secrets.doppler_token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime_file="$RUNNER_TEMP/runtime-secrets.json"
+          doppler secrets download --no-file --format json \
+            --project "$TARGET_DOPPLER_PROJECT" --config "$TARGET_DOPPLER_CONFIG" \
+            | jq '{
+                ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL,
+                TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USERNAME, TELEGRAM_WEBHOOK_SECRET_TOKEN,
+                ZALO_BOUNCE_URL, ZALO_WEBHOOK_SECRET,
+                GEMINI_API_KEY, GEMINI_SEARCH_MODEL,
+                FIREBASE_API_KEY, FIREBASE_AUTH_DOMAIN, FIREBASE_PROJECT_ID,
+                FIREBASE_STORAGE_BUCKET, FIREBASE_MESSAGING_SENDER_ID,
+                FIREBASE_APP_ID, FIREBASE_MEASUREMENT_ID,
+                FIREBASE_PRIVATE_KEY_ID, FIREBASE_PRIVATE_KEY,
+                FIREBASE_CLIENT_EMAIL, FIREBASE_CLIENT_ID, FIREBASE_CLIENT_X509_CERT_URL
+              }
+              | with_entries(select(.value != null and .value != ""))
+              | {GEMINI_SEARCH_MODEL: "unused"} * .' > "$runtime_file"
+          jq -e 'length == 21 and all(.[]; type == "string" and length > 0)' "$runtime_file" >/dev/null
+          cf_token="$(doppler secrets get CLOUDFLARE_API_TOKEN --plain --project "$TARGET_DOPPLER_PROJECT" --config "$TARGET_DOPPLER_CONFIG")"
+          cf_account="$(doppler secrets get CLOUDFLARE_ACCOUNT_ID --plain --project "$TARGET_DOPPLER_PROJECT" --config "$TARGET_DOPPLER_CONFIG")"
+          echo "::add-mask::$cf_token"
+          (
+            unset DOPPLER_TOKEN
+            export CLOUDFLARE_API_TOKEN="$cf_token" CLOUDFLARE_ACCOUNT_ID="$cf_account"
+            pnpm exec wrangler deploy --config "$TARGET_WRANGLER_CONFIG" \
+              --name "$TARGET_WORKER" --secrets-file "$runtime_file" --message "github:$GITHUB_SHA"
+            pnpm skills:sync
+          )
+          node -e 'require("node:fs").unlinkSync(process.argv[1])' "$runtime_file"
