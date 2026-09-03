@@ -10,6 +10,7 @@ const match = workflow.match(/\/\/ EMAIL_DEPLOYMENT_CONTRACT_SCRIPT_START\n([\s\
 
 test('the reusable workflow exposes an executable Email deployment contract', () => {
   assert.ok(match, 'missing Email deployment contract script markers')
+  assert.match(workflow, /required-worker-main:/)
 })
 
 if (match) {
@@ -20,6 +21,7 @@ if (match) {
 
   function validConfig() {
     return {
+      main: '../../worker/email-entry.mjs',
       send_email: [{ name: 'EMAIL' }],
       queues: {
         producers: [{ binding: 'MAIL_INGEST_QUEUE', queue: `${worker}-ingest` }],
@@ -42,6 +44,7 @@ if (match) {
       env: {
         ...process.env,
         EMAIL_CONTRACT_CONFIG: configPath,
+        EMAIL_CONTRACT_MAIN: '../../worker/email-entry.mjs',
         EMAIL_CONTRACT_WORKER: worker,
       },
     })
@@ -60,6 +63,14 @@ if (match) {
     const result = validate(config)
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /remote/)
+  })
+
+  test('rejects a Worker entry that bypasses durable Email staging', () => {
+    const config = validConfig()
+    config.main = 'index.mjs'
+    const result = validate(config)
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /entry/)
   })
 
   for (const [name, mutate] of [

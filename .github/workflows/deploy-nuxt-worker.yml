@@ -20,6 +20,11 @@ on:
       has-kv: { required: false, default: true, type: boolean }
       vectorize-index: { required: false, default: '', type: string }
       require-email-binding: { required: false, default: false, type: boolean }
+      required-worker-main:
+        description: Exact generated Worker entry required when a wrapper enforces runtime semantics
+        required: false
+        default: ''
+        type: string
     secrets:
       doppler_token: { required: true }
 
@@ -103,6 +108,7 @@ jobs:
           HAS_KV: ${{ inputs.has-kv }}
           VECTORIZE_INDEX: ${{ inputs.vectorize-index }}
           REQUIRE_EMAIL: ${{ inputs.require-email-binding }}
+          REQUIRED_WORKER_MAIN: ${{ inputs.required-worker-main }}
         shell: bash
         run: |
           set -euo pipefail
@@ -131,11 +137,12 @@ jobs:
               'any(.vectorize[]?; .index_name == $index)' "$TARGET_WRANGLER_CONFIG" >/dev/null
           fi
           if [ "$REQUIRE_EMAIL" = true ]; then
-            EMAIL_CONTRACT_CONFIG="$TARGET_WRANGLER_CONFIG" EMAIL_CONTRACT_WORKER="$TARGET_WORKER" node <<'NODE'
+            EMAIL_CONTRACT_CONFIG="$TARGET_WRANGLER_CONFIG" EMAIL_CONTRACT_MAIN="$REQUIRED_WORKER_MAIN" EMAIL_CONTRACT_WORKER="$TARGET_WORKER" node <<'NODE'
           // EMAIL_DEPLOYMENT_CONTRACT_SCRIPT_START
           const { readFileSync } = require('node:fs')
 
           const config = JSON.parse(readFileSync(process.env.EMAIL_CONTRACT_CONFIG, 'utf8'))
+          const requiredMain = process.env.EMAIL_CONTRACT_MAIN
           const worker = process.env.EMAIL_CONTRACT_WORKER
           const ingestQueue = `${worker}-ingest`
           const deadLetterQueue = `${ingestQueue}-dlq`
@@ -149,6 +156,8 @@ jobs:
           }
 
           const email = emailBindings.find(binding => binding.name === 'EMAIL')
+          if (requiredMain)
+            requireContract(config.main === requiredMain, `Worker entry must be ${requiredMain}`)
           requireContract(email, 'missing EMAIL binding')
           requireContract(!Object.hasOwn(email, 'remote'), 'production EMAIL binding must omit remote')
           requireContract(
