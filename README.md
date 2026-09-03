@@ -10,6 +10,10 @@ reviewed deployment logic.
 - `deploy-nuxt-worker.yml` builds a Nuxt Worker with only caller-declared
   build-time Doppler keys, validates its D1/KV/R2/custom-domain contract,
   applies D1 migrations, and uploads code plus runtime secrets atomically.
+  When `require-email-binding` is enabled, validation also requires a local
+  `EMAIL` binding plus the final `${worker-name}-ingest` producer, retrying
+  ingest consumer, and `${worker-name}-ingest-dlq` consumer. A generated
+  `remote` Email binding fails before migrations or deployment.
 - `deploy-static-worker.yml` builds and deploys a static Worker with only the
   caller-declared build-time Doppler keys.
 - `deploy-zcagent.yml` verifies and deploys zcagent with its exact runtime

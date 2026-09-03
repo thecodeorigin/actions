@@ -131,7 +131,43 @@ jobs:
               'any(.vectorize[]?; .index_name == $index)' "$TARGET_WRANGLER_CONFIG" >/dev/null
           fi
           if [ "$REQUIRE_EMAIL" = true ]; then
-            jq -e 'any(.send_email[]?; .name == "EMAIL")' "$TARGET_WRANGLER_CONFIG" >/dev/null
+            EMAIL_CONTRACT_CONFIG="$TARGET_WRANGLER_CONFIG" EMAIL_CONTRACT_WORKER="$TARGET_WORKER" node <<'NODE'
+          // EMAIL_DEPLOYMENT_CONTRACT_SCRIPT_START
+          const { readFileSync } = require('node:fs')
+
+          const config = JSON.parse(readFileSync(process.env.EMAIL_CONTRACT_CONFIG, 'utf8'))
+          const worker = process.env.EMAIL_CONTRACT_WORKER
+          const ingestQueue = `${worker}-ingest`
+          const deadLetterQueue = `${ingestQueue}-dlq`
+          const emailBindings = Array.isArray(config.send_email) ? config.send_email : []
+          const producers = Array.isArray(config.queues?.producers) ? config.queues.producers : []
+          const consumers = Array.isArray(config.queues?.consumers) ? config.queues.consumers : []
+
+          function requireContract(condition, message) {
+            if (!condition)
+              throw new Error(`Invalid Email deployment contract: ${message}`)
+          }
+
+          const email = emailBindings.find(binding => binding.name === 'EMAIL')
+          requireContract(email, 'missing EMAIL binding')
+          requireContract(!Object.hasOwn(email, 'remote'), 'production EMAIL binding must omit remote')
+          requireContract(
+            producers.some(producer => producer.binding === 'MAIL_INGEST_QUEUE' && producer.queue === ingestQueue),
+            `missing MAIL_INGEST_QUEUE producer for ${ingestQueue}`,
+          )
+          requireContract(
+            consumers.some(consumer =>
+              consumer.queue === ingestQueue
+              && consumer.max_retries === 5
+              && consumer.dead_letter_queue === deadLetterQueue),
+            `missing ingest consumer with ${deadLetterQueue} dead-letter queue`,
+          )
+          requireContract(
+            consumers.some(consumer => consumer.queue === deadLetterQueue),
+            `missing dead-letter consumer for ${deadLetterQueue}`,
+          )
+          // EMAIL_DEPLOYMENT_CONTRACT_SCRIPT_END
+          NODE
           fi
 
       - name: Apply D1 migrations
