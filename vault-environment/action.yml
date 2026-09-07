@@ -1,0 +1,35 @@
+name: Vault environment
+description: Load an explicitly scoped THECODEORIGIN Vault environment into this job
+inputs:
+  token:
+    description: Scoped organization integration token
+    required: true
+  organization:
+    description: Vault organization slug
+    required: false
+    default: thecodeorigin-co-ltd
+  project:
+    description: Vault project slug
+    required: true
+  environment:
+    description: Vault environment slug
+    required: true
+  deployment-kind:
+    description: Optional production or preview environment guard
+    required: false
+  keys:
+    description: Optional JSON array selecting exact environment keys
+    required: false
+runs:
+  using: composite
+  steps:
+    - name: Load and mask Vault environment
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/index.mjs"
+      env:
+        THECODEORIGIN_VAULT_TOKEN: ${{ inputs.token }}
+        VAULT_ORGANIZATION: ${{ inputs.organization }}
+        VAULT_PROJECT: ${{ inputs.project }}
+        VAULT_ENVIRONMENT: ${{ inputs.environment }}
+        VAULT_DEPLOYMENT_KIND: ${{ inputs.deployment-kind }}
+        VAULT_KEYS: ${{ inputs.keys }}
