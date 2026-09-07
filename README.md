@@ -1,48 +1,22 @@
 # THECODEORIGIN Actions
 
-Pinned reusable GitHub Actions for THECODEORIGIN Cloudflare deployments.
-This public repository contains code only so private repositories in the
-`thecodeorigin`, `habicron`, and `zcaflare` organizations can call the same
-reviewed deployment logic.
+Shared Cloudflare deployment workflows and a Vault environment loader.
 
-## Workflows
-
-- `deploy-nuxt-worker.yml` builds a Nuxt Worker with only caller-declared
-  build-time Doppler keys, validates its D1/KV/R2/custom-domain contract,
-  applies D1 migrations, and uploads code plus runtime secrets atomically.
-  When `require-email-binding` is enabled, validation also requires a local
-  `EMAIL` binding plus the final `${worker-name}-ingest` producer, retrying
-  ingest consumer, and `${worker-name}-ingest-dlq` consumer. A generated
-  `remote` Email binding fails before migrations or deployment. Set
-  `required-worker-main` when an application-owned wrapper must remain the
-  exact generated Worker entry.
-- `deploy-static-worker.yml` builds and deploys a static Worker with only the
-  caller-declared build-time Doppler keys.
-- `deploy-zcagent.yml` verifies and deploys zcagent with its exact runtime
-  secret allowlist and generated binding contract.
-
-Every workflow accepts a required `doppler_token` secret. Callers must pass
-only that named secret; do not use `secrets: inherit`. Cloudflare credentials
-and runtime secrets are read from the caller-selected Doppler project and
-config. Dependency installation never receives the Doppler token, and build
-processes receive only the explicitly declared build-time keys.
-
-## Pinning
-
-Production callers must reference a full immutable commit SHA:
+Store one repository secret: `THECODEORIGIN_VAULT_TOKEN`. Keep application and deployment credentials in the `thecodeorigin-co-ltd` Vault organization. Give each token access only to the project environments its workflow needs.
 
 ```yaml
-jobs:
-  deploy:
-    uses: thecodeorigin/actions/.github/workflows/deploy-nuxt-worker.yml@0123456789abcdef0123456789abcdef01234567
-    with:
-      doppler-project: example
-      worker-name: example
-      route-hostname: example.com
-      deployment-url: https://example.com
-      build-secret-names: '["CLOUDFLARE_D1_DATABASE_ID"]'
-    secrets:
-      doppler_token: ${{ secrets.DOPPLER_TOKEN }}
+- uses: thecodeorigin/actions/vault-environment@4bff26b9e9ac41c293f82a294a5eb2a262648a87
+  with:
+    token: ${{ secrets.THECODEORIGIN_VAULT_TOKEN }}
+    project: email
+    environment: production
+    deployment-kind: production
 ```
 
-Review and publish a new commit before moving callers to a different SHA.
+The action validates the returned scope, masks values, and writes them to the job environment. Use `keys: '["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]'` to select specific keys. Reserved runner and shell variables cannot be overwritten. The Vault token is available only to the loader step.
+
+Reusable workflows accept `vault-project`, `vault-environment` (default `production`), and the named `THECODEORIGIN_VAULT_TOKEN` secret. Nuxt and static builds receive only caller-declared build keys; provider credentials are rejected. Nuxt deployment validates bindings, applies migrations, and uploads runtime secrets with the Worker. Temporary secret files are removed on success or failure.
+
+The ecosystem's production source of truth is `.cdk/index.ts`; its root workflow uses CDK to reconcile resources, applications, and seeds. Preview and standalone deployments can use these shared actions. Pin callers to a reviewed full commit SHA and pass named secrets explicitly.
+
+Run loader checks with `node --test test/*.test.mjs`.
