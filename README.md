@@ -1,5 +1,13 @@
 # THECODEORIGIN Actions
 
+## Ecosystem workspace
+
+`ecosystem-workspace` checks out one exact `thecodeorigin/ecosystem` commit,
+verifies that its gitlink matches the invoking repository commit, checks out all
+registered projects, installs the single root pnpm lockfile, and can run that
+project's `check` or `build` gate. The calling workflow must load a scoped
+`ECOSYSTEM_CHECKOUT_TOKEN` into `GITHUB_ENV` before invoking the action.
+
 Shared Cloudflare deployment workflows and a Vault environment loader.
 
 Store one repository secret: `THECODEORIGIN_VAULT_TOKEN`. Keep application and deployment credentials in the `thecodeorigin-co-ltd` Vault organization. Give each token access only to the project environments its workflow needs.

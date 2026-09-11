@@ -1,0 +1,31 @@
+name: Ecosystem workspace
+description: Check out an exact THECODEORIGIN ecosystem commit, install its pnpm workspace, and optionally run one project gate
+inputs:
+  ecosystem-sha:
+    description: Full commit SHA of the ecosystem superproject
+    required: true
+  project-path:
+    description: Project path declared by the ecosystem workspace registry
+    required: true
+  operation:
+    description: Optional project operation (check or build)
+    required: false
+    default: ''
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      with:
+        version: 11.22.0
+        run_install: false
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: 22
+        cache: false
+    - name: Check out and install the ecosystem workspace
+      shell: bash
+      run: node "$GITHUB_ACTION_PATH/index.mjs"
+      env:
+        ECOSYSTEM_SHA: ${{ inputs.ecosystem-sha }}
+        ECOSYSTEM_PROJECT_PATH: ${{ inputs.project-path }}
+        ECOSYSTEM_OPERATION: ${{ inputs.operation }}
