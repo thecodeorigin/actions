@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { configuration } from '../ecosystem-workspace/index.mjs'
 
@@ -11,6 +12,11 @@ const valid = {
   GITHUB_WORKSPACE: '/tmp/actions-workspace',
   GITHUB_ENV: '/tmp/github-env',
 }
+
+test('sets up Node without the unsupported false cache input', () => {
+  const action = readFileSync(new URL('../ecosystem-workspace/action.yml', import.meta.url), 'utf8')
+  assert.doesNotMatch(action, /cache:\s*false/)
+})
 
 test('accepts an exact ecosystem and child commit', () => {
   assert.deepEqual(configuration(valid), {
