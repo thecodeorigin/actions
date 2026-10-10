@@ -3,7 +3,8 @@ import { appendFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-const endpoint = 'https://vault.thecodeorigin.com/api/integration/secrets/export'
+const defaultOrigin = 'https://vault.thecodeorigin.com'
+const exportPath = '/api/integration/secrets/export'
 const slug = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const variable = /^[A-Z][A-Z0-9_]*$/
 const reserved = /^(?:GITHUB_|RUNNER_|ACTIONS_|INPUT_|THECODEORIGIN_VAULT_|LD_|DYLD_|npm_|NPM_CONFIG_|PNPM_CONFIG_)/i
@@ -21,14 +22,25 @@ export function parseScope(input) {
     scope[name] = input[name]
   }
   if (input.kind !== undefined) {
-    const allowed = input.kind === 'production' ? ['production'] : input.kind === 'preview' ? ['development', 'staging', 'preview'] : []
+    const allowed = input.kind === 'production' ? ['production'] : input.kind === 'preview' ? ['dev', 'development', 'staging', 'preview'] : []
     if (!allowed.includes(scope.environmentSlug)) throw new Error('Vault environment does not match deployment kind')
   }
   return scope
 }
 
-export async function readVaultEnvironment(input, token, fetcher = fetch) {
+/** The Vault origin must stay a THECODEORIGIN https host so the bearer token cannot be sent elsewhere. */
+export function exportEndpoint(origin = defaultOrigin) {
+  let url
+  try { url = new URL(origin || defaultOrigin) }
+  catch { throw new Error('Invalid Vault endpoint') }
+  if (url.protocol !== 'https:' || url.username || url.password || url.port || url.pathname !== '/' || url.search || url.hash
+    || !/(?:^|.)thecodeorigin.com$/.test(url.hostname)) throw new Error('Invalid Vault endpoint')
+  return `${url.origin}${exportPath}`
+}
+
+export async function readVaultEnvironment(input, token, fetcher = fetch, origin) {
   const scope = parseScope(input)
+  const endpoint = exportEndpoint(origin)
   if (typeof token !== 'string' || !token || /[\r\n\0]/.test(token)) throw new Error('Missing or invalid THECODEORIGIN_VAULT_TOKEN')
   let response
   try {
@@ -107,7 +119,7 @@ export async function main(environment = process.env) {
   let keys
   try { keys = environment.VAULT_KEYS ? JSON.parse(environment.VAULT_KEYS) : undefined }
   catch { throw new Error('VAULT_KEYS must be a JSON array') }
-  const values = await readVaultEnvironment(scope, environment.THECODEORIGIN_VAULT_TOKEN)
+  const values = await readVaultEnvironment(scope, environment.THECODEORIGIN_VAULT_TOKEN, fetch, environment.VAULT_ENDPOINT)
   const count = await exportEnvironment(values, { file: environment.GITHUB_ENV, keys })
   console.log(`Loaded ${count} environment variables from Vault ${scope.projectSlug}/${scope.environmentSlug}.`)
 }

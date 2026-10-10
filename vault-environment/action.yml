@@ -17,6 +17,10 @@ inputs:
   deployment-kind:
     description: Optional production or preview environment guard
     required: false
+  endpoint:
+    description: Vault origin to read from; must be a https THECODEORIGIN host
+    required: false
+    default: https://vault.thecodeorigin.com
   keys:
     description: Optional JSON array selecting exact environment keys
     required: false
@@ -33,3 +37,4 @@ runs:
         VAULT_ENVIRONMENT: ${{ inputs.environment }}
         VAULT_DEPLOYMENT_KIND: ${{ inputs.deployment-kind }}
         VAULT_KEYS: ${{ inputs.keys }}
+        VAULT_ENDPOINT: ${{ inputs.endpoint }}

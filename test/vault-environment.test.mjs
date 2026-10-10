@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { exportEnvironment, githubEnvironment, parseScope, readVaultEnvironment } from '../vault-environment/index.mjs'
+import { exportEndpoint, exportEnvironment, githubEnvironment, parseScope, readVaultEnvironment } from '../vault-environment/index.mjs'
 
 const scope = { organizationSlug: 'thecodeorigin-co-ltd', projectSlug: 'email', environmentSlug: 'production' }
 const payload = secrets => ({ ...scope, organizationId: 'org', projectId: 'project', environmentId: 'env', revision: 3, secrets })
@@ -13,6 +13,17 @@ test('validates fixed slug scopes and rejects production preview confusion', () 
   assert.throws(() => parseScope({ ...scope, projectSlug: '../email' }))
   assert.throws(() => parseScope({ ...scope, environmentSlug: 'production', kind: 'preview' }))
   assert.deepEqual(parseScope({ ...scope, environmentSlug: 'development', kind: 'preview' }), { ...scope, environmentSlug: 'development' })
+  assert.deepEqual(parseScope({ ...scope, environmentSlug: 'dev', kind: 'preview' }), { ...scope, environmentSlug: 'dev' })
+  assert.throws(() => parseScope({ ...scope, environmentSlug: 'dev', kind: 'production' }))
+})
+test('only sends the token to https THECODEORIGIN Vault origins', async () => {
+  assert.equal(exportEndpoint(), 'https://vault.thecodeorigin.com/api/integration/secrets/export')
+  assert.equal(exportEndpoint('https://vault.dev.thecodeorigin.com'), 'https://vault.dev.thecodeorigin.com/api/integration/secrets/export')
+  for (const origin of ['http://vault.dev.thecodeorigin.com', 'https://evil.example', 'https://thecodeorigin.com.evil.example', 'https://u:p@vault.thecodeorigin.com', 'https://vault.thecodeorigin.com:8443', 'https://vault.thecodeorigin.com/x', 'nope'])
+    assert.throws(() => exportEndpoint(origin), /Invalid Vault endpoint/)
+  let url
+  await readVaultEnvironment({ ...scope, environmentSlug: 'dev' }, 'private-token', async (target) => { url = target; return Response.json({ ...payload({}), environmentSlug: 'dev' }) }, 'https://vault.dev.thecodeorigin.com')
+  assert.equal(url, 'https://vault.dev.thecodeorigin.com/api/integration/secrets/export')
 })
 test('exports only matching authenticated scope with bounded no-redirect request', async () => {
   let request
