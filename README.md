@@ -18,5 +18,3 @@ Store one repository secret: `THECODEORIGIN_VAULT_TOKEN`. Keep application and d
 The action validates the returned scope, masks values, and writes them to the job environment. Use `keys: '["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]'` to select specific keys. Reserved runner and shell variables cannot be overwritten. The Vault token is available only to the loader step.
 
 Each repository deploys through its own workflows. Pin callers to a reviewed full commit SHA of these actions and pass named secrets explicitly.
-
-Run loader checks with `node --test test/*.test.mjs`.
