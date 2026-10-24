@@ -28,7 +28,7 @@ export function parseScope(input) {
   return scope
 }
 
-/** The Vault origin must stay a THECODEORIGIN https host so the bearer token cannot be sent elsewhere. */
+/** The Vault origin must stay a THECODEORIGIN https host so the API key cannot be sent elsewhere. */
 export function exportEndpoint(origin = defaultOrigin) {
   let url
   try { url = new URL(origin || defaultOrigin) }
@@ -45,7 +45,7 @@ export async function readVaultEnvironment(input, token, fetcher = fetch, origin
   let response
   try {
     response = await fetcher(endpoint, {
-      method: 'POST', headers: { authorization: `Bearer ${token}`, accept: 'application/json', 'content-type': 'application/json' },
+      method: 'POST', headers: { 'x-api-key': token, accept: 'application/json', 'content-type': 'application/json' },
       body: JSON.stringify(scope), redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(30_000),
     })
   } catch { throw new Error('Vault environment request failed') }
